@@ -1,5 +1,6 @@
 #include "task.h"
 #include "../../include/rtos.h"
+#include "../platform/esp32/context.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -43,8 +44,8 @@ rtos_task_t *task_create(
     task->block_info.blocked_on = 0;
     task->block_info.timeout = 0;
 
-    /* Inicializa stack pointer no topo da stack */
-    task->sp = (void *)((uintptr_t)task->stack + stack_size - TASK_STACK_ALIGN);
+    /* Inicializa stack com contexto válido */
+    context_init_stack(task);
 
     return task;
 }

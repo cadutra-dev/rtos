@@ -1,5 +1,6 @@
 #include "../../include/rtos.h"
 #include "kernel_internal.h"
+#include "../platform/esp32/context.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -54,6 +55,7 @@ int rtos_kernel_init(void) {
     }
 
     kernel_initialized = true;
+    printf("[RTOS] Kernel initialized\n");
     return RTOS_OK;
 }
 
@@ -67,6 +69,8 @@ int rtos_kernel_start(void) {
     /* Inicia timer de tick */
     timer_init();
 
+    printf("[RTOS] Kernel starting scheduler...\n");
+
     /* Seleciona primeira tarefa pronta */
     kernel.current_task = scheduler_get_next_task();
 
@@ -74,10 +78,13 @@ int rtos_kernel_start(void) {
         return RTOS_ERROR;
     }
 
+    printf("[RTOS] Starting task: %s\n", kernel.current_task->name);
+
     /* Restaura contexto da primeira tarefa */
+    /* Esta chamada nunca retorna - restaura o contexto completamente */
     context_restore(kernel.current_task);
 
-    /* Nunca retorna (o scheduler assume o controle) */
+    /* Nunca chega aqui */
     return RTOS_OK;
 }
 
@@ -109,6 +116,7 @@ void rtos_kernel_tick(void) {
         }
 
         /* Restaura contexto da próxima tarefa */
+        /* Esta chamada nunca retorna - restaura o contexto completamente */
         context_restore(next_task);
     }
 }
