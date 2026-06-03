@@ -1,6 +1,8 @@
 #include "../../include/rtos.h"
+#include "../sync/blocking.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 typedef struct {
     uint32_t id;
@@ -10,6 +12,8 @@ typedef struct {
     size_t head;
     size_t tail;
     size_t count;
+    uint32_t senders_waiting;       /* Tarefas esperando para enviar */
+    uint32_t receivers_waiting;     /* Tarefas esperando para receber */
 } queue_internal_t;
 
 static queue_internal_t queues[RTOS_MAX_QUEUES];
@@ -29,6 +33,8 @@ rtos_queue_t rtos_queue_create(size_t item_size, size_t queue_length) {
             queues[i].head = 0;
             queues[i].tail = 0;
             queues[i].count = 0;
+            queues[i].senders_waiting = 0;
+            queues[i].receivers_waiting = 0;
 
             return queues[i].id;
         }
@@ -37,46 +43,88 @@ rtos_queue_t rtos_queue_create(size_t item_size, size_t queue_length) {
 }
 
 int rtos_queue_send(rtos_queue_t queue, const void *item, uint32_t timeout_ms) {
-    (void)timeout_ms;
-
     for (int i = 0; i < RTOS_MAX_QUEUES; i++) {
         if (queues[i].id == queue) {
-            if (queues[i].count >= queues[i].queue_length) {
-                return RTOS_ERROR;  /* Fila cheia */
+            /* Se há espaço, envia imediatamente */
+            if (queues[i].count < queues[i].queue_length) {
+                void *dest = (void *)((uintptr_t)queues[i].buffer + 
+                                      queues[i].tail * queues[i].item_size);
+                memcpy(dest, item, queues[i].item_size);
+
+                queues[i].tail = (queues[i].tail + 1) % queues[i].queue_length;
+                queues[i].count++;
+
+                return RTOS_OK;
             }
-
-            /* Copia item para fila */
-            void *dest = (void *)((uintptr_t)queues[i].buffer + 
-                                  queues[i].tail * queues[i].item_size);
-            memcpy(dest, item, queues[i].item_size);
-
-            queues[i].tail = (queues[i].tail + 1) % queues[i].queue_length;
-            queues[i].count++;
-
-            return RTOS_OK;
+            
+            /* Se não há espaço e não quer esperar */
+            if (timeout_ms == RTOS_NO_WAIT) {
+                return RTOS_TIMEOUT;
+            }
+            
+            /* Bloqueia tarefa */
+            rtos_task_handle_t current = rtos_task_get_current();
+            blocking_block_task(current, BLOCK_QUEUE_SEND, queue, timeout_ms);
+            queues[i].senders_waiting++;
+            
+            /* Cede processador */
+            rtos_task_yield();
+            
+            /* Ao retornar, tenta enviar novamente */
+            if (queues[i].count < queues[i].queue_length) {
+                void *dest = (void *)((uintptr_t)queues[i].buffer + 
+                                      queues[i].tail * queues[i].item_size);
+                memcpy(dest, item, queues[i].item_size);
+                queues[i].tail = (queues[i].tail + 1) % queues[i].queue_length;
+                queues[i].count++;
+                return RTOS_OK;
+            }
+            
+            return RTOS_TIMEOUT;
         }
     }
     return RTOS_ERROR;
 }
 
 int rtos_queue_receive(rtos_queue_t queue, void *item, uint32_t timeout_ms) {
-    (void)timeout_ms;
-
     for (int i = 0; i < RTOS_MAX_QUEUES; i++) {
         if (queues[i].id == queue) {
-            if (queues[i].count == 0) {
-                return RTOS_TIMEOUT;  /* Fila vazia */
+            /* Se há item, recebe imediatamente */
+            if (queues[i].count > 0) {
+                void *src = (void *)((uintptr_t)queues[i].buffer + 
+                                     queues[i].head * queues[i].item_size);
+                memcpy(item, src, queues[i].item_size);
+
+                queues[i].head = (queues[i].head + 1) % queues[i].queue_length;
+                queues[i].count--;
+
+                return RTOS_OK;
             }
-
-            /* Copia item da fila */
-            void *src = (void *)((uintptr_t)queues[i].buffer + 
-                                 queues[i].head * queues[i].item_size);
-            memcpy(item, src, queues[i].item_size);
-
-            queues[i].head = (queues[i].head + 1) % queues[i].queue_length;
-            queues[i].count--;
-
-            return RTOS_OK;
+            
+            /* Se não há item e não quer esperar */
+            if (timeout_ms == RTOS_NO_WAIT) {
+                return RTOS_TIMEOUT;
+            }
+            
+            /* Bloqueia tarefa */
+            rtos_task_handle_t current = rtos_task_get_current();
+            blocking_block_task(current, BLOCK_QUEUE_RECEIVE, queue, timeout_ms);
+            queues[i].receivers_waiting++;
+            
+            /* Cede processador */
+            rtos_task_yield();
+            
+            /* Ao retornar, tenta receber novamente */
+            if (queues[i].count > 0) {
+                void *src = (void *)((uintptr_t)queues[i].buffer + 
+                                     queues[i].head * queues[i].item_size);
+                memcpy(item, src, queues[i].item_size);
+                queues[i].head = (queues[i].head + 1) % queues[i].queue_length;
+                queues[i].count--;
+                return RTOS_OK;
+            }
+            
+            return RTOS_TIMEOUT;
         }
     }
     return RTOS_ERROR;

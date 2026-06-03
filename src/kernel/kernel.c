@@ -1,6 +1,6 @@
 #include "../../include/rtos.h"
-#include "kernel_internal.h"
-#include "../platform/esp32/context.h"
+#include "../kernel/kernel_internal.h"
+#include "../sync/blocking.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -94,6 +94,9 @@ void rtos_kernel_tick(void) {
     }
 
     kernel.ticks++;
+
+    /* Processa timeouts de bloqueio */
+    blocking_process_timeouts();
 
     /* Atualiza scheduler */
     scheduler_update_tasks();
