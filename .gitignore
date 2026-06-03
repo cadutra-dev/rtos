@@ -1,0 +1,25 @@
+# Build files
+/build/
+/dist/
+*.o
+*.a
+*.so
+*.elf
+*.bin
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
